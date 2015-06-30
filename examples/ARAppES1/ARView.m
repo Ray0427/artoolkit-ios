@@ -45,14 +45,14 @@
 //
 //  Author(s): Philip Lamb
 //
-
+//#define DEBUG
 #import <QuartzCore/QuartzCore.h>
 #import "ARView.h"
 #import "ARViewController.h"
 #include "glStateCache.h"
 #include <AR/gsub_es.h>
 #include <AR/gsub_mtx.h>
-
+#define DEGREES_TO_RADIANS(x) (3.14159265358979323846 * x / 180.0)
 NSString *const ARViewUpdatedCameraLensNotification = @"ARViewUpdatedCameraLensNotification";
 NSString *const ARViewUpdatedCameraPoseNotification = @"ARViewUpdatedCameraPoseNotification";
 NSString *const ARViewUpdatedViewportNotification = @"ARViewUpdatedViewportNotification";
@@ -173,6 +173,7 @@ NSString *const ARViewUpdatedViewportNotification = @"ARViewUpdatedViewportNotif
 #ifdef DEBUG
     NSLog(@"[ARView layoutSubviews] viewport left=%d, bottom=%d, width=%d, height=%d\n", left, bottom, w, h);
 #endif
+    
 }
 
 - (GLint *)viewPort
@@ -261,16 +262,22 @@ NSString *const ARViewUpdatedViewportNotification = @"ARViewUpdatedViewportNotif
 {
     // Colour cube data.
     int i;
-    const GLfloat cube_vertices [8][3] = {
-        /* +z */ {0.5f, 0.5f, 0.5f}, {0.5f, -0.5f, 0.5f}, {-0.5f, -0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f},
-        /* -z */ {0.5f, 0.5f, -0.5f}, {0.5f, -0.5f, -0.5f}, {-0.5f, -0.5f, -0.5f}, {-0.5f, 0.5f, -0.5f} };
-    const GLubyte cube_vertex_colors [8][4] = {
-        {255, 255, 255, 255}, {255, 255, 0, 255}, {0, 255, 0, 255}, {0, 255, 255, 255},
-        {255, 0, 255, 255}, {255, 0, 0, 255}, {0, 0, 0, 255}, {0, 0, 255, 255} };
+    //rect vertices
+    const GLfloat cube_vertices [4][3] = {
+//        /* +z */ {0.5f, 0.5f, 0.5f}, {0.5f, -0.5f, 0.5f}, {-0.5f, -0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f},
+        /* -z */ {1.0f, 1.0f, -0.5f}, {1.0f, -1.0f, -0.5f}, {-1.0f, -1.0f, -0.5f}, {-1.0f, 1.0f, -0.5f} };
+//    const GLfloat cube_vertices [8][3] = {
+//        /* +z */ {0.5f, 0.5f, 0.5f}, {0.5f, -0.5f, 0.5f}, {-0.5f, -0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f},
+//        /* -z */ {0.5f, 0.5f, -0.5f}, {0.5f, -0.5f, -0.5f}, {-0.5f, -0.5f, -0.5f}, {-0.5f, 0.5f, -0.5f} };
+    const GLubyte cube_vertex_colors [4][4] = {
+//        {255, 255, 255, 0}, {255, 255, 255, 0}, {255, 255, 255, 0}, {255, 255, 255, 0},
+        {255, 0, 0, 0}, {255, 0, 0, 0}, {255, 0, 0, 0}, {255, 0, 0, 0} };
+//    const GLubyte cube_vertex_colors [8][4] = {
+//        {255, 255, 255, 255}, {255, 255, 0, 255}, {0, 255, 0, 255}, {0, 255, 255, 255},
+//        {255, 0, 255, 255}, {255, 0, 0, 255}, {0, 0, 0, 255}, {0, 0, 255, 255} };
     const GLushort cube_faces [6][4] = { /* ccw-winding */
         /* +z */ {3, 2, 1, 0}, /* -y */ {2, 3, 7, 6}, /* +y */ {0, 1, 5, 4},
         /* -x */ {3, 0, 4, 7}, /* +x */ {1, 2, 6, 5}, /* -z */ {4, 5, 6, 7} };
-    
     glPushMatrix(); // Save world coordinate system.
     glRotatef(gDrawRotateAngle, 0.0f, 0.0f, 1.0f); // Rotate about z axis.
     glScalef(20.0f, 20.0f, 20.0f);
@@ -286,15 +293,30 @@ NSString *const ARViewUpdatedViewportNotification = @"ARViewUpdatedViewportNotif
     glStateCacheDisableClientStateTexCoordArray();
     glStateCacheDisableClientStateNormalArray();
     glEnableClientState(GL_COLOR_ARRAY);
+    glLineWidth(4.0f);
     for (i = 0; i < 6; i++) {
-        glDrawElements(GL_TRIANGLE_FAN, 4, GL_UNSIGNED_SHORT, &(cube_faces[i][0]));
+        glDrawElements(GL_LINES, 4, GL_UNSIGNED_SHORT, &(cube_faces[i][0]));
     }
     glDisableClientState(GL_COLOR_ARRAY);
     glColor4ub(0, 0, 0, 255);
-    for (i = 0; i < 6; i++) {
-        glDrawElements(GL_LINE_LOOP, 4, GL_UNSIGNED_SHORT, &(cube_faces[i][0]));
+//    for (i = 0; i < 6; i++) {
+//        glDrawElements(GL_LINE_LOOP, 4, GL_UNSIGNED_SHORT, &(cube_faces[i][0]));
+//    }
+    //draw center
+    GLfloat vertices[360][3];
+    for (int i = 0; i < 360; i += 1) {
+        // x value
+        vertices[i][0]   = (cos(DEGREES_TO_RADIANS(i)) * 0.1);
+        // y value
+        vertices[i][1] = (sin(DEGREES_TO_RADIANS(i)) * 0.1);
+        vertices[i][2] = -0.5f;
     }
+    glVertexPointer(3, GL_FLOAT, 0, vertices);
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glColor4f(1.0f, 0.0f, 0.0f, 1.0f);
+    glDrawArrays(GL_TRIANGLE_FAN, 0, 360);
     glPopMatrix();    // Restore world coordinate system.
+    
 }
 
 - (void)updateWithTimeDelta:(NSTimeInterval)timeDelta
@@ -322,7 +344,7 @@ NSString *const ARViewUpdatedViewportNotification = @"ARViewUpdatedViewportNotif
     
     // Set any initial per-frame GL state you require here.
     // --->
-
+    
     // Lighting and geometry that moves with the camera should be added here.
     // (I.e. should be specified before camera pose transform.)
     // --->
@@ -343,7 +365,7 @@ NSString *const ARViewUpdatedViewportNotification = @"ARViewUpdatedViewportNotif
     // Set up 2D mode.
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    if (contentRotate90) glRotatef(90.0f, 0.0f, 0.0f, -1.0f);
+//    if (contentRotate90) glRotatef(90.0f, 0.0f, 0.0f, -1.0f);
 	width = (float)viewPort[(contentRotate90 ? viewPortIndexHeight : viewPortIndexWidth)];
 	height = (float)viewPort[(contentRotate90 ? viewPortIndexWidth : viewPortIndexHeight)];
 	glOrthof(0.0f, width, 0.0f, height, -1.0f, 1.0f);
@@ -358,11 +380,12 @@ NSString *const ARViewUpdatedViewportNotification = @"ARViewUpdatedViewportNotif
     // then uncomment the line below.
     //glStateCacheFlush();
 
-#ifdef DEBUG
+
     // Example of 2D drawing. It just draws a white border line.
-    const GLfloat square_vertices [4][2] = { {0.5f, 0.5f}, {0.5f, height - 0.5f}, {width - 0.5f, height - 0.5f}, {width - 0.5f, 0.5f} };
-    glColor4ub(255, 255, 255, 255);
-    glLineWidth(1.0f);
+    const GLfloat square_vertices [4][2] = { {449.5f, 510.0f}, {449.5f, height - 490.0f}, {width - 449.5f, height - 490.0f}, {width - 449.5f, 510.0f} };
+//    const GLfloat square_vertices [4][2] = { {429.5f, 500.0f}, {429.5f, height - 500.0f}, {width - 429.5f, height - 500.0f}, {width - 429.5f, 500.0f} };
+    glColor4ub(255, 0, 0, 255);
+    glLineWidth(4.0f);
     glStateCacheDisableLighting();
     glStateCacheActiveTexture(GL_TEXTURE0);
     glStateCacheDisableTex2D();
@@ -372,7 +395,8 @@ NSString *const ARViewUpdatedViewportNotification = @"ARViewUpdatedViewportNotif
     glStateCacheDisableClientStateTexCoordArray();
     glStateCacheDisableClientStateNormalArray();
     glDrawArrays(GL_LINE_LOOP, 0, 4);
-#endif
+    
+
     
 #ifdef DEBUG
     CHECK_GL_ERROR();

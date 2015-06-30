@@ -54,7 +54,7 @@
 //
 // An ARViewController manages a single ARView, into which drawing is performed.
 //
-
+#import <CoreMotion/CoreMotion.h>
 #import <QuartzCore/QuartzCore.h>
 #include <AR/ar.h>
 #include <AR/video.h>
@@ -62,8 +62,22 @@
 #import <AR/sys/CameraVideo.h>
 #import "../ARAppCore/EAGLView.h"
 
+@protocol MotionKitDelegate
+@optional
+- (void)retrieveAccelerometerValues:(double)x y:(double)y z:(double)z absoluteValue:(double)absoluteValue;
+- (void)retrieveGyroscopeValues:(double)x y:(double)y z:(double)z absoluteValue:(double)absoluteValue;
+- (void)retrieveDeviceMotionObject:(CMDeviceMotion *)deviceMotion;
+- (void)retrieveMagnetometerValues:(double)x y:(double)y z:(double)z absoluteValue:(double)absoluteValue;
+- (void)getAccelerationValFromDeviceMotion:(double)x y:(double)y z:(double)z;
+- (void)getGravityAccelerationValFromDeviceMotion:(double)x y:(double)y z:(double)z;
+- (void)getRotationRateFromDeviceMotion:(double)x y:(double)y z:(double)z;
+- (void)getMagneticFieldFromDeviceMotion:(double)x y:(double)y z:(double)z;
+- (void)getAttitudeFromDeviceMotion:(CMAttitude *)attitude;
+@end
+
 @class ARView;
-@interface ARViewController : UIViewController <CameraVideoTookPictureDelegate, EAGLViewTookSnapshotDelegate> {
+@interface ARViewController : UIViewController <CameraVideoTookPictureDelegate, EAGLViewTookSnapshotDelegate,MotionKitDelegate> {
+    
 }
 
 - (IBAction)start;
@@ -71,7 +85,6 @@
 - (void) processFrame:(AR2VideoBufferT *)buffer;
 
 - (void)takeSnapshot;
-
 @property (readonly) ARView *glView;
 @property (readonly) ARGL_CONTEXT_SETTINGS_REF arglContextSettings;
 

@@ -45,24 +45,30 @@
 //
 //  Author(s): Philip Lamb
 //
-
+//#define DEBUG
+//#define AR_INPUT_IPHONE 1
 #import "ARViewController.h"
+#import "PhotoView.h"
 #import "ARView.h"
 #import <AR/gsub_es.h>
 #import <AudioToolbox/AudioToolbox.h> // SystemSoundID, AudioServicesCreateSystemSoundID()
-
+//#import "NSMutableArray+Queue.h"
+#import "ARAppES1-Swift.h"
 #define VIEW_SCALEFACTOR        1.0f
 #define VIEW_DISTANCE_MIN        5.0f          // Objects closer to the camera than this will not be displayed.
 #define VIEW_DISTANCE_MAX        2000.0f        // Objects further away from the camera than this will not be displayed.
 
-
+#define BUFFER_SIZE 10  //frame during in queue
+#define SAMPLE_RATE 4
+#define DISTANCE (14.7f/size)
+#define BUFFER_DISTANCE 6.0f
 //
 // ARViewController
 //
 
 
 @implementation ARViewController {
-    
+    MotionKit *motionKit;
     BOOL            running;
     NSInteger       runLoopInterval;
     NSTimeInterval  runLoopTimePrevious;
@@ -88,6 +94,22 @@
     ARParamLT      *gCparamLT;
     ARView         *glView;
     ARGL_CONTEXT_SETTINGS_REF arglContextSettings;
+    NSMutableArray *queue[5];
+//    struct recordType{
+//        float pos[2];
+//        float vector[4][2];
+//    }record[100];
+//    int recordNum ;
+    int index;
+    NSTimeInterval time;
+    CGPoint accuPoint[5];
+    float accumulate;
+    CGPoint offset;
+//    float filter[10];
+    CGPoint predictPoint[5];
+    NSMutableString *message ;
+    float size;// 1m : 15.3   2m : 7.6 for iPad  //1m : 14.7  for iPhone6_Plus
+    
 }
 
 @synthesize glView;
@@ -106,7 +128,7 @@
 
 - (void)loadView
 {
-    self.wantsFullScreenLayout = YES;
+//    self.wantsFullScreenLayout = YES;
     
     // This will be replaced with the actual AR view.
     NSString *irisImage = nil;
@@ -140,6 +162,20 @@
     running = FALSE;
     videoPaused = FALSE;
     runLoopTimePrevious = CFAbsoluteTimeGetCurrent();
+    for (int i=0; i<5; i++) {
+            queue[i] = [[NSMutableArray alloc] init];
+    }
+    index = 0;
+    NSTimeInterval time=[[NSDate date] timeIntervalSince1970];
+    motionKit=[[MotionKit alloc]init];
+    motionKit.delegate=self;
+    
+    
+    [[UIDevice currentDevice] beginGeneratingDeviceOrientationNotifications];
+    [[NSNotificationCenter defaultCenter]
+     addObserver:self selector:@selector(orientationChanged:)
+     name:UIDeviceOrientationDidChangeNotification
+     object:[UIDevice currentDevice]];
 }
 
 - (void)viewDidAppear:(BOOL)animated
@@ -261,13 +297,13 @@ static void startCallback(void *userData)
     // Load the camera parameters, resize for the window and init.
     ARParam cparam;
     if (ar2VideoGetCParam(gVid, &cparam) < 0) {
-        char cparam_name[] = "Data2/camera_para.dat";
-        NSLog(@"Unable to automatically determine camera parameters. Using default.\n");
-        if (arParamLoad(cparam_name, 1, &cparam) < 0) {
-            NSLog(@"Error: Unable to load parameter file %s for camera.\n", cparam_name);
-            [self stop];
-            return;
-        }
+//        char cparam_name[] = "Data2/camera_para.dat";
+//        NSLog(@"Unable to automatically determine camera parameters. Using default.\n");
+//        if (arParamLoad(cparam_name, 1, &cparam) < 0) {
+//            NSLog(@"Error: Unable to load parameter file %s for camera.\n", cparam_name);
+//            [self stop];
+//            return;
+//        }
     }
     if (cparam.xsize != xsize || cparam.ysize != ysize) {
 #ifdef DEBUG
@@ -316,7 +352,7 @@ static void startCallback(void *userData)
     [cameraVideo setTookPictureDelegateUserData:NULL];
     
     // Other ARToolKit setup. 
-    arSetMarkerExtractionMode(gARHandle, AR_USE_TRACKING_HISTORY_V2);
+//    arSetMarkerExtractionMode(gARHandle, AR_USE_TRACKING_HISTORY_V2);
     //arSetMarkerExtractionMode(gARHandle, AR_NOUSE_TRACKING_HISTORY);
     //arSetLabelingThreshMode(gARHandle, AR_LABELING_THRESH_MODE_MANUAL); // Uncomment to use  manual thresholding.
     
@@ -362,7 +398,7 @@ static void startCallback(void *userData)
     
     // Load marker(s).
     // Loading only 1 pattern in this example.
-     char *patt_name  = "Data2/patt.hiro";
+     char *patt_name  = "Data2/marker16.pat";
     if ((gPatt_id = arPattLoad(gARPattHandle, patt_name)) < 0) {
         NSLog(@"Error loading pattern file %s.\n", patt_name);
         [self stop];
@@ -390,6 +426,8 @@ static void startCallback(void *userData)
 {
     ARdouble err;
     int j, k;
+    CGPoint pos,vertex[4];
+    float filter[10] = {0.25f,0.125f,0.125f,0.125f,0.0625f,0.0625f,0.0625f,0.0625f,0.0625f,0.0625f};
 
     if (buffer) {
         
@@ -428,7 +466,86 @@ static void startCallback(void *userData)
         if (k != -1) {
 #ifdef DEBUG
             NSLog(@"marker %d matched pattern %d.\n", k, gPatt_id);
+            
 #endif
+            //my_code
+            //put point into queue
+            if ( UIDeviceOrientationIsLandscape([UIDevice currentDevice].orientation)){
+                index = 0;
+                for (int i=0; i<5; i++) {
+                    [queue[i] removeAllObjects];
+                }
+            }
+            else {
+                if ([[NSDate date]timeIntervalSince1970]-time>(1.0/SAMPLE_RATE)) {
+                    
+                    time = [[NSDate date]timeIntervalSince1970];
+                    pos = CGPointMake(gARHandle->markerInfo[k].pos[0], gARHandle->markerInfo[k].pos[1]);
+                    [queue[0] addObject:[NSValue valueWithCGPoint:pos]];
+                    for (int i=0; i<4; i++) {
+                        vertex[i] = CGPointMake(gARHandle->markerInfo[k].vertex[i][0],gARHandle->markerInfo[k].vertex[i][1]);
+                        [queue[i+1] addObject:[NSValue valueWithCGPoint:vertex[i]]];
+                    }
+                    index++;
+                    //get during point from queue
+                    accumulate=0.0f;
+                    for (int j=0; j<5; j++) {
+                        accuPoint[j].x = 0.0f;
+                        accuPoint[j].y = 0.0f;
+                    }
+                    for (int i=0; (i<index)&&(i<BUFFER_SIZE ); i++) {
+                        for (int j=0; j<5; j++) {
+                            accuPoint[j].x += ([[queue[j] objectAtIndex:index-i-1] CGPointValue].x * filter[i]);
+                            accuPoint[j].y += [[queue[j] objectAtIndex:index-i-1] CGPointValue].y * filter[i];
+                            accumulate += filter[i];
+                        }
+                    }
+                    
+                    for(int j=0;j<5;j++){
+                        predictPoint[j].x = accuPoint[j].x/accumulate;
+                        predictPoint[j].y = accuPoint[j].y/accumulate;
+                    }
+                    size = sqrtf(powf((predictPoint[4].x-predictPoint[2].x),2)+powf((predictPoint[4].x-predictPoint[2].x), 2));
+                    NSLog(@"\npos:%@ \nvertex[0]:%@ \nvertex[1]:%@ \nvertex[2]:%@ \nvertex[3]:%@ \nsize:%f \ndistance:%f",NSStringFromCGPoint(predictPoint[0]),NSStringFromCGPoint(predictPoint[1]),NSStringFromCGPoint(predictPoint[2]),NSStringFromCGPoint(predictPoint[3]),NSStringFromCGPoint(predictPoint[4]),size,DISTANCE);
+                    if (predictPoint[0].y-36>BUFFER_DISTANCE) {
+                        NSLog(@"drone should go right.\n");
+                    }
+                    else if(predictPoint[0].y-36<(-BUFFER_DISTANCE)){
+                        NSLog(@"drone should go left.\n");
+                    }
+                    else{
+                        if (predictPoint[0].x-45>BUFFER_DISTANCE) {
+                            NSLog(@"drone should go up.\n");
+                        }
+                        else if(predictPoint[0].x-45<(-BUFFER_DISTANCE)){
+                            NSLog(@"drone should go down.\n");
+                        }
+
+                    }
+                    //                    NSLog(@"%f",[[NSDate date]timeIntervalSince1970]);
+                    //                    NSLog(@"index:%d",index);
+                    //            for (int i=0; i<4; i++) {
+                    //                for (int j=0; j<2; j++) {
+                    //                    [queue[i+1][j] enqueue:@gARHandle->markerInfo[k].vertex[i][j]];
+                    //                }
+                    //            }
+                    //            printf("pos:%f %f\n",gARHandle->markerInfo[k].pos[0],gARHandle->markerInfo[k].pos[1]);
+                    //            for (int i=0; i<4; i++) {
+                    //                printf("vector[%d] x:%f y:%f\n",i,gARHandle->markerInfo[k].vertex[i][0],gARHandle->markerInfo[k].vertex[i][1]);
+                    //            }
+                    //            //Log out drone position
+                    //            if (gARHandle->markerInfo[k].pos[0]>240) {
+                    //                NSLog(@"drone is under the center\n");
+                    //            }
+                    //            else NSLog(@"drone is upon the center\n");
+                    //            if (gARHandle->markerInfo[k].pos[1]>180) {
+                    //                NSLog(@"drone in left\n");
+                    //            }
+                    //            else NSLog(@"drone in right\n");
+                }
+            }
+            //my_code end
+
             // Get the transformation between the marker and the real camera into gPatt_trans.
             if (gPatt_found && useContPoseEstimation) {
                 err = arGetTransMatSquareCont(gAR3DHandle, &(gARHandle->markerInfo[k]), gPatt_trans, gPatt_width, gPatt_trans);
@@ -449,7 +566,7 @@ static void startCallback(void *userData)
             arglCameraViewRHf(patt_transf, modelview, VIEW_SCALEFACTOR);
 #endif
             gPatt_found = TRUE;
-            [glView setCameraPose:modelview];
+            [glView setCameraPose:modelview]; //draw ar cube
         } else {
             gPatt_found = FALSE;
             [glView setCameraPose:NULL];
@@ -471,7 +588,9 @@ static void startCallback(void *userData)
 - (IBAction)stop
 {
     [self stopRunLoop];
-    
+    for (int i=0; i<5; i++) {
+        [queue[i] release];
+    }
     if (arglContextSettings) {
         arglCleanup(arglContextSettings);
         arglContextSettings = NULL;
@@ -562,6 +681,34 @@ static void startCallback(void *userData)
         [alertView show];
         [alertView release];
     }
+}
+
+- (void) orientationChanged:(NSNotification *)note{
+    UIDevice *device = [UIDevice currentDevice];
+    PhotoView *view2 = [[PhotoView alloc]init];
+    //ViewController *view = [[ViewController alloc]init];
+    
+    
+    switch(device.orientation)
+    {
+        case UIDeviceOrientationPortrait:
+            [self dismissModalViewControllerAnimated:NO];
+            break;
+        case UIDeviceOrientationPortraitUpsideDown:
+            //_button.hidden = YES;
+            break;
+        case UIDeviceOrientationLandscapeLeft:
+            NSLog (@"this is a test1");
+            [self presentViewController:view2 animated:NO completion:nil];
+            break;
+        case UIDeviceOrientationLandscapeRight:
+            NSLog (@"this is a test2");
+            [self presentViewController:view2 animated:NO completion:nil];
+            break;
+            
+        default:
+            break;
+    };
 }
 
 @end

@@ -88,6 +88,7 @@
     ARParamLT      *gCparamLT;
     ARView         *glView;
     ARGL_CONTEXT_SETTINGS_REF arglContextSettings;
+    
 }
 
 @synthesize glView;
@@ -121,6 +122,7 @@
         }
     }
     self.view = [[[UIImageView alloc] initWithImage:[UIImage imageNamed:irisImage]] autorelease]; // autorelease because self.view retains it.
+    
 }
 
 // Implement viewDidLoad to do additional setup after loading the view, typically from a nib.
